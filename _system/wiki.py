@@ -36,6 +36,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -998,7 +999,10 @@ def cmd_status(args):
     if len(pend) > 8:
         lines.append("  … and %d more (`python3 _system/wiki.py pending`)" % (len(pend) - 8))
     if last_lint:
-        age = (_dt.date.today() - _dt.date.fromisoformat(last_lint)).days
+        try:
+            age = (_dt.date.today() - _dt.date.fromisoformat(last_lint)).days
+        except ValueError:
+            age = 0
         due = age >= cfg.get("lint_due_days", 14) or ingests_since >= cfg.get("lint_due_ingests", 10)
         lines.append("Last lint: %s (%dd ago, %d ingest(s) since)%s"
                      % (last_lint, age, ingests_since, " → lint is due (/wiki-lint)" if due else ""))
@@ -1014,9 +1018,10 @@ def cmd_status(args):
                                        ", %d open issue(s)" % n_open if n_open else ""))
         lines.append("Active projects: " + "; ".join(bits))
     horizon = (_dt.date.today() + _dt.timedelta(days=cfg.get("due_soon_days", 14))).isoformat()
-    due = sorted((str(a.field("due")), a) for a in v.content_pages()
+    due = sorted(((str(a.field("due")), a) for a in v.content_pages()
                  if a.type == "assignment" and a.field("status") in ("todo", "doing")
-                 and DATE_RE.match(str(a.field("due", ""))) and str(a.field("due")) <= horizon)
+                 and DATE_RE.match(str(a.field("due", ""))) and str(a.field("due")) <= horizon),
+                 key=lambda x: (x[0], x[1].slug))
     for d, a in due[:6]:
         lines.append("  %s %s — %s [%s]" % ("OVERDUE" if d < today() else "due", d, a.slug, a.field("status")))
     idx = v.special("index")
@@ -1290,6 +1295,12 @@ def cmd_log(args):
     path = v.special("log")
     if args.op not in v.cfg.get("log_ops", []):
         print("log: note — op '%s' is not in config log_ops %s" % (args.op, v.cfg.get("log_ops")), file=sys.stderr)
+    if args.date:
+        try:
+            _dt.date.fromisoformat(args.date)
+        except ValueError:
+            print("log: --date must be a real YYYY-MM-DD date, got %r" % args.date, file=sys.stderr)
+            return 2
     title = " ".join(args.title.split())
     lines = ["## [%s] %s | %s" % (args.date or today(), args.op, title)]
 
@@ -1386,6 +1397,8 @@ def cmd_capture(args):
 # ---------------------------------------------------------------------------
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+WIKI_CMD = "python3 " + shlex.quote(str(ROOT / "_system" / "wiki.py"))  # shell-safe even with spaces in the path
+STATE_FILE = SYSTEM_DIR / ".state" / "sessions.json"
 IGNORE_FILE = SYSTEM_DIR / "ignored-repos.txt"
 
 
@@ -1431,8 +1444,8 @@ def resolve_project(v, project=None, cwd=None):
     if hub:
         return hub, None
     root = repo_root(cwd) or cwd
-    return None, ("%s is not registered to a project. Register it: python3 %s/_system/wiki.py project add <slug> "
-                  "--title \"…\" --summary \"…\" --repo \"%s\"   (or pass --project <slug>)" % (root, ROOT, root))
+    return None, ("%s is not registered to a project. Register it: %s project add <slug> "
+                  "--title \"…\" --summary \"…\" --repo \"%s\"   (or pass --project <slug>)" % (root, WIKI_CMD, root))
 
 
 def insert_in_section(text, heading, line):
@@ -1602,7 +1615,7 @@ def cmd_project(args):
         print(hub.slug)
         return 0
     if args.action == "ignore":
-        path = os.path.realpath(os.path.expanduser(args.path or repo_root(os.getcwd()) or os.getcwd()))
+        path = os.path.realpath(os.path.expanduser(args.path or args.slug or repo_root(os.getcwd()) or os.getcwd()))
         existing = IGNORE_FILE.read_text(encoding="utf-8") if IGNORE_FILE.exists() else \
             "# Repos the global wiki hooks should never track (one absolute path per line).\n"
         if path not in ignored_repos():
@@ -1652,7 +1665,7 @@ def hub_unfilled(hub):
 
 def project_context(v, hub, session=None):
     cfg = v.cfg
-    wiki_py = "python3 %s/_system/wiki.py" % ROOT
+    wiki_py = WIKI_CMD
     L = ["<project-wiki-context>",
          "Personal wiki project: %s ([[%s]]) — %s · status %s" % (hub.title, hub.slug, hub.field("summary"), hub.field("status")),
          "Hub page: %s" % hub.path]
@@ -1698,13 +1711,34 @@ def cmd_context(args):
     return 0
 
 
-def transcript_edits(transcript_path):
-    """Files edited outside the vault since the last `wiki.py worklog` call in this transcript."""
-    edits = []
+def load_state():
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state):
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if len(state) > 200:  # keep the most recent sessions only
+            state = dict(sorted(state.items(), key=lambda kv: kv[1].get("at", ""))[-200:])
+        STATE_FILE.write_text(json.dumps(state, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def transcript_edits(transcript_path, start=0):
+    """(files edited outside the vault since the last `wiki.py worklog` call and after transcript line
+    `start`, number of transcript lines read)."""
+    edits, n = [], 0
     if not transcript_path or not os.path.exists(os.path.expanduser(transcript_path)):
-        return edits
+        return edits, n
     with open(os.path.expanduser(transcript_path), encoding="utf-8", errors="replace") as fh:
         for line in fh:
+            n += 1
+            if n <= start:
+                continue
             try:
                 obj = json.loads(line)
             except ValueError:
@@ -1723,11 +1757,20 @@ def transcript_edits(transcript_path):
                     fp = inp.get("file_path") or inp.get("notebook_path")
                     if fp and not in_vault(fp):
                         edits.append(fp)
-    return edits
+    return edits, n
+
+
+def git_busy(root):
+    """True while a merge, rebase, cherry-pick or revert is in progress, or paths are unmerged."""
+    gd = Path(root) / ".git"
+    if any((gd / n).exists() for n in ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD")):
+        return True
+    rc, out = git(root, "diff", "--name-only", "--diff-filter=U")
+    return rc == 0 and bool(out.strip())
 
 
 def vault_commit(msg):
-    if not (ROOT / ".git").exists():
+    if not (ROOT / ".git").exists() or os.environ.get("WIKI_AUTOSAVE", "1") == "0" or git_busy(ROOT):
         return False
     rc, out = git(ROOT, "status", "--porcelain")
     if rc != 0 or not out.strip():
@@ -1754,7 +1797,7 @@ def cmd_hook(args):
     v = Vault()
     hub = v.find_project(cwd)
     sid = data.get("session_id")
-    wiki_py = "python3 %s/_system/wiki.py" % ROOT
+    wiki_py = WIKI_CMD
     if args.event == "session-start":
         if hub:
             print(project_context(v, hub, sid))
@@ -1764,11 +1807,14 @@ def cmd_hook(args):
                   "the work (skill: wiki-log). If the user doesn't want it tracked: `%s project ignore %s`."
                   "</project-wiki-context>" % (repo_root(cwd), wiki_py, repo_root(cwd), wiki_py, repo_root(cwd)))
         return 0
-    if os.environ.get("WIKI_REMIND", "1") == "0":
-        return 0
-    edits = transcript_edits(data.get("transcript_path"))
+    state = load_state()
+    st = state.get(sid or "", {})
     if args.event == "stop":
-        if data.get("stop_hook_active") or len(edits) < v.cfg.get("remind_min_edits", 3):
+        if os.environ.get("WIKI_REMIND", "1") == "0" or data.get("stop_hook_active"):
+            return 0
+        # count only edits after the last worklog call, the last auto-log and the last reminder (one nudge per batch)
+        edits, n = transcript_edits(data.get("transcript_path"), max(st.get("logged", 0), st.get("reminded", 0)))
+        if len(edits) < v.cfg.get("remind_min_edits", 3):
             return 0
         if not hub and not repo_root(cwd):
             return 0
@@ -1791,12 +1837,19 @@ def cmd_hook(args):
                       "the work: `%s worklog \"…\" --session %s --did \"…\" --files …`. If this repo shouldn't be "
                       "tracked, run `%s project ignore %s` instead. Then finish your reply as you would have."
                       % (root, wiki_py, root, wiki_py, sid, wiki_py, root))
+        if sid:
+            state[sid] = dict(st, reminded=n, at=_dt.datetime.now().isoformat())
+            save_state(state)
         print(json.dumps({"decision": "block", "reason": reason}))
         return 0
     if args.event == "session-end":
+        edits, n = transcript_edits(data.get("transcript_path"), st.get("logged", 0))
         if hub and edits:
             append_worklog(v, hub, "Auto-logged: session ended without a summary", files=edits,
                            notes=["unsummarized — files touched after the last work-log entry"], session=sid, cwd=cwd)
+        if sid:  # a resumed session must not auto-log the same edits again
+            state[sid] = dict(st, logged=n, at=_dt.datetime.now().isoformat())
+            save_state(state)
         vault_commit("wiki: autosave | %s session" % (hub.slug if hub else os.path.basename(cwd)))
         return 0
     return 0
@@ -1809,6 +1862,12 @@ def cmd_hook(args):
 GLOBAL_MARK = "agent-wiki-kit"
 
 
+def _is_our_hook(command):
+    """Matches hooks written by any install of this kit, whatever the OS path separator."""
+    c = str(command).replace("\\", "/")
+    return "_system/wiki.py" in c and re.search(r"\bhook (session-start|stop|session-end)\b", c) is not None
+
+
 def cmd_install_global(args):
     home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
     src = SYSTEM_DIR / "global"
@@ -1816,7 +1875,7 @@ def cmd_install_global(args):
     actions = []
 
     def render(text):
-        return text.replace("{{VAULT}}", str(ROOT)).replace("{{WIKI_PY}}", "python3 %s" % wiki_py)
+        return text.replace("{{VAULT}}", str(ROOT)).replace("{{WIKI_PY}}", WIKI_CMD)
 
     # settings.json
     sp = home / "settings.json"
@@ -1825,7 +1884,7 @@ def cmd_install_global(args):
     hooks = settings.setdefault("hooks", {})
     for event, sub in (("SessionStart", "session-start"), ("Stop", "stop"), ("SessionEnd", "session-end")):
         groups = [g for g in hooks.get(event, [])
-                  if not any("_system/wiki.py\" hook" in str(h.get("command", "")) for h in g.get("hooks", []))]
+                  if not any(_is_our_hook(h.get("command", "")) for h in g.get("hooks", []))]
         if not args.uninstall:
             groups.append({"hooks": [{"type": "command", "command": 'python3 "%s" hook %s' % (wiki_py, sub),
                                       "timeout": 30}]})
@@ -1836,9 +1895,9 @@ def cmd_install_global(args):
     if not hooks:
         settings.pop("hooks", None)
     perms = settings.setdefault("permissions", {})
-    allow_rule = "Bash(python3 %s *)" % wiki_py
-    allow = [a for a in perms.get("allow", []) if not (a.startswith("Bash(python3 ") and "_system/wiki.py" in a
-                                                       and str(ROOT) in a)]
+    allow_rule = "Bash(%s *)" % WIKI_CMD
+    allow = [a for a in perms.get("allow", []) if not (a.startswith("Bash(python3 ")
+                                                       and "_system/wiki.py" in str(a).replace("\\", "/"))]
     dirs = [d for d in perms.get("additionalDirectories", []) if d != str(ROOT)]
     if not args.uninstall:
         allow.append(allow_rule)
@@ -2053,6 +2112,26 @@ def cmd_selftest(args):
         rc, out = run("hook", "session-end", stdin=hin())
         logt = (tmp / "wiki/projects/demo/demo-log.md").read_text(encoding="utf-8")
         check("session-end auto-logs unlogged edits", "%% session: s2 %%" in logt and "`src/b.py`" in logt, logt)
+        rc, out = run("hook", "session-end", stdin=hin())
+        logt2 = (tmp / "wiki/projects/demo/demo-log.md").read_text(encoding="utf-8")
+        check("resumed session doesn't auto-log the same edits twice", logt2.count("Auto-logged") == 1, logt2)
+        env_saved = dict(env)
+        env["WIKI_REMIND"] = "0"
+        with open(tr, "a", encoding="utf-8") as fh:
+            fh.write(tu("Write", {"file_path": str(repo / "src/c.py")}) + "\n")
+        rc, out = run("hook", "session-end", stdin=hin())
+        env.clear(); env.update(env_saved)
+        check("WIKI_REMIND=0 keeps the session-end auto-log", "`src/c.py`" in
+              (tmp / "wiki/projects/demo/demo-log.md").read_text(encoding="utf-8"), out)
+        run("new", "assignment", "hw2", "--parent", "algorithms", "--title", "HW 2", "--kind", "exam",
+            "--due", "2000-01-01", "--summary", "Same due date.")
+        rc, out = run("status")
+        check("status survives assignments sharing a due date", rc == 0 and "algorithms-hw2" in out, out)
+        rc, out = run("log", "lint", "x", "--date", "2026-02-30")
+        check("log rejects impossible dates", rc == 2, out)
+        rc, out = run("project", "ignore", str(outside / "sandbox"))
+        check("project ignore takes a positional path",
+              str((outside / "sandbox").resolve()) in (tmp / "_system/ignored-repos.txt").read_text(encoding="utf-8"), out)
         rc, out = run("hook", "session-start", stdin=hin())
         check("session-start injects project context", "<project-wiki-context>" in out and "Demo App" in out, out)
         rc, out = run("hook", "session-start", stdin=hin(cwd=str(tmp / "wiki")))
@@ -2087,6 +2166,14 @@ def cmd_selftest(args):
                   g("Bash", {"command": "curl -L -o raw/2026-01-01-paper.md https://x.test"}) == 2)
             check("guard allows cp out of raw", g("Bash", {"command": "cp raw/2026-01-01-paper.md /tmp/x.md"}) == 0)
             check("guard blocks mv out of raw", g("Bash", {"command": "mv raw/2026-01-01-paper.md /tmp/"}) == 2)
+            graw = lambda cmd: subprocess.run([sys.executable, str(guard)], input=json.dumps(
+                {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(tmp / "raw")}),
+                capture_output=True, text=True, env=genv).returncode
+            check("guard blocks relative rm when cwd is raw/", graw("rm 2026-01-01-paper.md") == 2)
+            check("guard blocks redirect after cd into raw",
+                  g("Bash", {"command": "cd raw && echo x >> 2026-01-01-paper.md"}) == 2)
+            check("guard blocks mv onto an existing name in raw/",
+                  g("Bash", {"command": "mv /tmp/2026-01-01-paper.md raw/"}) == 2)
         else:
             results.append(("guard hook tests skipped (.claude/hooks/protect_raw.py not found)", True, ""))
     finally:

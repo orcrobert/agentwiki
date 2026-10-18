@@ -68,18 +68,17 @@ def main():
     if tool not in ("Bash", "PowerShell"):
         return 0
     cmd = ti.get("command") or ""
-    if "raw" not in cmd:
-        return 0
-
-    # redirects: > file, >> file, &> file, 2> file
-    for m in re.finditer(r"(?:^|[^<>&0-9])(?:[0-9]?|&)>>?\s*(\"[^\"]+\"|'[^']+'|[^\s;&|()<>]+)", cmd):
-        if existing_in_raw(m.group(1)):
-            return block("redirect into %s" % m.group(1))
+    if "raw" not in cmd and not in_raw(cwd):
+        return 0  # shortcut only when relative paths can't land in raw/
 
     for seg in re.split(r"\|\||&&|;|\||\n", cmd):
         seg = seg.strip()
         if not seg:
             continue
+        # redirects: > file, >> file, &> file, 2> file (resolved against the cwd tracked so far)
+        for m in re.finditer(r"(?:^|[^<>&0-9])(?:[0-9]?|&)>>?\s*(\"[^\"]+\"|'[^']+'|[^\s;&|()<>]+)", seg):
+            if existing_in_raw(m.group(1)):
+                return block("redirect into %s" % m.group(1))
         try:
             toks = shlex.split(seg, posix=True)
         except ValueError:
@@ -104,6 +103,10 @@ def main():
                     return block("%s moves a file out of/within raw/" % verb)
                 if existing_in_raw(dest) and not os.path.isdir(absolute(dest)):
                     return block("%s overwrites %s" % (verb, dest))
+                if os.path.isdir(absolute(dest)) and in_raw(dest):
+                    for s_ in srcs:
+                        if os.path.exists(os.path.join(absolute(dest), os.path.basename(s_.rstrip("/")))):
+                            return block("%s overwrites %s/%s" % (verb, dest, os.path.basename(s_)))
                 continue
             if raw_args:
                 return block("%s %s" % (verb, " ".join(raw_args)))

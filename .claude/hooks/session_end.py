@@ -18,6 +18,12 @@ def main():
         return 0
     if os.environ.get("WIKI_AUTOSAVE", "1") == "0":
         return 0
+    gd = os.path.join(root, ".git")
+    if any(os.path.exists(os.path.join(gd, n))
+           for n in ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD")):
+        return 0  # never conclude a merge/rebase the human is in the middle of
+    if git(root, "diff", "--name-only", "--diff-filter=U").stdout.strip():
+        return 0
     st = git(root, "status", "--porcelain")
     if st.returncode != 0 or not st.stdout.strip():
         return 0

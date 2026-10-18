@@ -27,3 +27,4 @@ CLAUDE.local.md
 _system/ignored-repos.txt
 _system/reports/*
 !_system/reports/.gitkeep
+_system/.state/
