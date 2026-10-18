@@ -1,0 +1,29 @@
+# Obsidian per-device state
+.obsidian/workspace*.json
+.obsidian/cache
+.trash/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+
+# Tooling
+__pycache__/
+*.pyc
+node_modules/
+
+# Personal, machine-local agent settings
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Secrets never belong in the vault
+.env
+.env.*
+*.pem
+*.key
+
+# Per-user state (never part of the template)
+_system/ignored-repos.txt
+_system/reports/*
+!_system/reports/.gitkeep

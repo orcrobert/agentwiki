@@ -1,0 +1,124 @@
+{
+  "schema_version": 2,
+  "wiki_dir": "wiki",
+  "raw_dir": "raw",
+  "raw_ignore": ["assets/", ".gitkeep", ".DS_Store", "README.md"],
+  "exclude_dirs": [".git", ".obsidian", ".claude", ".trash", "_system", "node_modules"],
+  "types": {
+    "project": {
+      "folder": "projects",
+      "hub": true,
+      "companions": {"worklog": "-log", "ideas": "-ideas"},
+      "required": ["type", "summary", "status", "repo", "created", "updated"],
+      "enums": {"status": ["active", "paused", "done", "archived"]}
+    },
+    "worklog": {
+      "folder": "projects",
+      "parent_type": "project",
+      "required": ["type", "parent", "summary", "created", "updated"]
+    },
+    "ideas": {
+      "folder": "projects",
+      "parent_type": "project",
+      "required": ["type", "parent", "summary", "created", "updated"]
+    },
+    "issue": {
+      "folder": "projects",
+      "parent_type": "project",
+      "subfolder": "issues",
+      "required": ["type", "parent", "summary", "status", "severity", "created", "updated"],
+      "enums": {"status": ["open", "fixed", "workaround", "wontfix"]}
+    },
+    "doc": {
+      "folder": "projects",
+      "parent_type": "project",
+      "subfolder": "docs",
+      "required": ["type", "kind", "parent", "summary", "status", "created", "updated"],
+      "enums": {
+        "status": ["stub", "active", "outdated", "superseded"],
+        "kind": ["overview", "architecture", "module", "flow", "decision", "setup", "glossary", "pitch", "other"]
+      }
+    },
+    "area": {
+      "folder": "learning",
+      "hub": true,
+      "required": ["type", "kind", "summary", "status", "created", "updated"],
+      "enums": {
+        "status": ["active", "paused", "done", "archived"],
+        "kind": ["course", "book", "skill", "research", "topic"]
+      }
+    },
+    "note": {
+      "folder": "learning",
+      "parent_type": "area",
+      "subfolder": "notes",
+      "required": ["type", "kind", "parent", "summary", "created", "updated"],
+      "enums": {"kind": ["lecture", "seminar", "lab", "reading", "chapter", "video", "session", "summary", "other"]}
+    },
+    "assignment": {
+      "folder": "learning",
+      "parent_type": "area",
+      "subfolder": "assignments",
+      "required": ["type", "kind", "parent", "summary", "status", "due", "created", "updated"],
+      "enums": {
+        "status": ["todo", "doing", "submitted", "graded", "missed"],
+        "kind": ["assignment", "exam", "quiz", "project", "presentation", "deadline"]
+      }
+    },
+    "concept": {
+      "folder": "concepts",
+      "required": ["type", "summary", "status", "confidence", "sources", "created", "updated"],
+      "needs_citation": true
+    },
+    "source": {
+      "folder": "sources",
+      "prefix": "src-",
+      "required": ["type", "kind", "summary", "status", "raw", "created", "updated"]
+    },
+    "synthesis": {
+      "folder": "syntheses",
+      "required": ["type", "kind", "summary", "status", "confidence", "sources", "created", "updated"],
+      "needs_citation": true
+    }
+  },
+  "citable_types": ["source", "note", "doc", "issue", "worklog"],
+  "index_order": ["project", "area", "concept", "synthesis", "source"],
+  "index_hidden_types": ["worklog", "ideas", "issue", "doc", "note", "assignment"],
+  "index_headings": {
+    "project": "Projects",
+    "area": "Learning",
+    "concept": "Concepts",
+    "synthesis": "Syntheses",
+    "source": "Sources"
+  },
+  "hub_sections": [
+    ["doc", "Docs & explainers"],
+    ["issue", "Issues"],
+    ["note", "Notes"],
+    ["assignment", "Assignments & exams"],
+    ["worklog", "Work log"],
+    ["ideas", "Ideas"],
+    ["concept", "Concepts"],
+    ["source", "Sources"],
+    ["synthesis", "Syntheses"]
+  ],
+  "special_pages": ["index", "log", "hot", "overview", "questions"],
+  "start_here": ["overview", "questions"],
+  "enums": {
+    "status": ["stub", "active", "contested", "superseded"],
+    "confidence": ["high", "medium", "low"],
+    "reliability": ["high", "medium", "low"],
+    "severity": ["low", "medium", "high", "critical"]
+  },
+  "log_ops": ["setup", "ingest", "capture", "query", "save", "lint", "refactor", "schema", "note",
+              "project", "worklog", "issue", "idea", "explain", "study"],
+  "summary_max_chars": 200,
+  "hot_max_lines": 40,
+  "lint_due_days": 14,
+  "lint_due_ingests": 10,
+  "index_search_threshold_lines": 300,
+  "context_log_entries": 3,
+  "remind_min_edits": 3,
+  "doc_stale_commits": 25,
+  "due_soon_days": 14
+}

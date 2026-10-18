@@ -1,0 +1,104 @@
+filters:
+  and:
+    - file.inFolder("wiki")
+    - file.ext == "md"
+    - 'type != "meta"'
+views:
+  - type: table
+    name: Open issues
+    filters:
+      and:
+        - 'type == "issue"'
+        - or:
+            - 'status == "open"'
+            - 'status == "workaround"'
+    order:
+      - file.name
+      - note.parent
+      - note.severity
+      - note.status
+      - note.summary
+      - note.updated
+    groupBy:
+      property: note.parent
+      direction: ASC
+  - type: table
+    name: Deadlines
+    filters:
+      and:
+        - 'type == "assignment"'
+        - or:
+            - 'status == "todo"'
+            - 'status == "doing"'
+    order:
+      - note.due
+      - file.name
+      - note.parent
+      - note.kind
+      - note.status
+      - note.summary
+    sort:
+      - property: note.due
+        direction: ASC
+  - type: table
+    name: Projects
+    filters:
+      and:
+        - 'type == "project"'
+    order:
+      - file.name
+      - note.status
+      - note.stack
+      - note.summary
+      - note.updated
+    groupBy:
+      property: note.status
+      direction: ASC
+  - type: table
+    name: Learning
+    filters:
+      and:
+        - 'type == "area"'
+    order:
+      - file.name
+      - note.kind
+      - note.status
+      - note.term
+      - note.summary
+      - note.updated
+    groupBy:
+      property: note.kind
+      direction: ASC
+  - type: table
+    name: Explainers
+    filters:
+      and:
+        - 'type == "doc"'
+    order:
+      - file.name
+      - note.parent
+      - note.kind
+      - note.status
+      - note.code_rev
+      - note.updated
+    groupBy:
+      property: note.parent
+      direction: ASC
+  - type: table
+    name: Needs attention
+    filters:
+      or:
+        - 'status == "contested"'
+        - 'status == "stub"'
+        - 'status == "outdated"'
+        - 'confidence == "low"'
+    order:
+      - file.name
+      - note.type
+      - note.status
+      - note.confidence
+      - note.summary
+      - note.updated
+    groupBy:
+      property: note.status
+      direction: ASC
