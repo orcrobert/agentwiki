@@ -1679,6 +1679,15 @@ def project_context(v, hub, session=None):
     docs = v.children(hub, "doc")
     if docs:
         L.append("Explainers: " + ", ".join("%s (%s)" % (d.slug, d.field("kind")) for d in sorted(docs, key=lambda p: p.slug)[:10]))
+    if graphify_ready(cfg):
+        for r in hub.list_field("repo"):
+            g = Path(os.path.expanduser(str(r))) / "graphify-out" / "graph.json"
+            if g.is_file():
+                L.append("Code graph (graphify, built %s): %s. For structure questions (what calls X, how A reaches B) try "
+                         "`graphify query \"…\"` / `graphify path A B` before reading files; cite the code, not the graph. "
+                         "Refresh after big changes: `graphify update .` (code only, no LLM)."
+                         % (_dt.date.fromtimestamp(g.stat().st_mtime).isoformat(), g))
+                break
     for wl in v.children(hub, "worklog"):
         ents = _entries(wl.body, cfg.get("context_log_entries", 3))
         if ents:
@@ -2160,6 +2169,17 @@ def cmd_selftest(args):
         rc, out = run("context", "--cwd", str(repo), "--session", "s9")
         check("context shows open issue + recent work",
               rc == 0 and "demo-login-crashes" in out and "Fixed login" in out and "--session s9" in out, out)
+        (repo / "graphify-out").mkdir()
+        (repo / "graphify-out/graph.json").write_text("{}", encoding="utf-8")
+        rc, out = run("context", "--cwd", str(repo))
+        check("context hides the code graph while graphify is off", "Code graph" not in out, out)
+        env_saved = env.copy()
+        env["PATH"] = str(fakebin) + os.pathsep + env.get("PATH", "")
+        run("graphify", "on")
+        rc, out = run("context", "--cwd", str(repo))
+        check("context points at the repo's code graph when graphify is on", "Code graph" in out and "graph.json" in out, out)
+        run("graphify", "off")
+        env.clear(); env.update(env_saved)
         tr = tmp / "transcript.jsonl"
         tu = lambda name, inp: json.dumps({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "name": name, "input": inp}]}})
