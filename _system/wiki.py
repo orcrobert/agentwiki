@@ -28,6 +28,7 @@ Commands
                              install user-level hooks, skills and CLAUDE.md block
   graphify [on|off]          optional graphify integration: show status (exit 0 = ready), or toggle it
   graphify gaps [--graph G]  from a graph built over wiki/: unlinked page pairs + clusters without a concept page
+  graphify map AREA          the same graph, one learning area: core concepts, topics, outside links, isolated notes
   selftest                   run the built-in test-suite in a temp vault
 """
 
@@ -2037,13 +2038,61 @@ def graph_gaps(v, graph_path):
     return sorted(pairs.items(), key=lambda kv: -kv[1]["n"]), sorted(orphan_clusters, key=lambda c: -len(c[1]))
 
 
+def graph_area(v, graph_path, hub):
+    """A learning area's slice of a graphify graph over wiki/: its pages plus concepts it links or that list it in
+    `areas:`. Returns (most connected, clusters, links leaving the area, notes with no edges inside the area)."""
+    g = json.loads(Path(graph_path).read_text(encoding="utf-8"))
+    skip = set(v.cfg.get("special_pages", []))
+    own = {hub.slug.lower()} | {p.slug.lower() for p in v.pages if p.parent == hub.slug.lower()}
+    linked = {t.split("/")[-1].lower() for p in v.pages if p.slug.lower() in own for t, _ in p.body_links + p.prop_links}
+    members = own | {p.slug.lower() for p in v.pages
+                     if p.type == "concept" and (hub.slug.lower() in p.link_field("areas") or p.slug.lower() in linked)}
+    node_page, comm = {}, {}
+    for nd in g.get("nodes", []):
+        slug = Path(str(nd.get("source_file") or "")).stem.lower()
+        if slug in v.by_slug and slug not in skip:
+            node_page[nd["id"]] = slug
+            if slug in members and nd.get("community") is not None:
+                comm.setdefault(nd.get("community_name") or "community %s" % nd["community"], set()).add(slug)
+    degree, outside, touched = Counter(), Counter(), set()
+    for e in g.get("links", g.get("edges", [])):
+        a, b = node_page.get(e.get("source")), node_page.get(e.get("target"))
+        if not a or not b or a == b:
+            continue
+        if a in members and b in members:
+            degree[a] += 1; degree[b] += 1; touched |= {a, b}
+        elif (a in members) != (b in members):
+            outside[(a, b) if a in members else (b, a)] += 1
+    notes = sorted(s for s in own if v.by_slug[s].type == "note" and s not in touched)
+    return (degree.most_common(), sorted(((n, sorted(s)) for n, s in comm.items() if len(s) >= 2), key=lambda c: -len(c[1])),
+            outside.most_common(), notes)
+
+
 def cmd_graphify(args):
-    if args.action == "gaps":
+    if args.action in ("gaps", "map"):
         v = Vault()
         gp = Path(args.graph) if args.graph else v.root / "graphify-out" / "graph.json"
         if not gp.is_file():
-            print("graphify gaps: no graph at %s (build one over wiki/ first)" % gp)
+            print("graphify %s: no graph at %s (build one over wiki/ first)" % (args.action, gp))
             return 2
+    if args.action == "map":
+        hub = v.by_slug.get((args.area or "").lower())
+        if hub is None or hub.type != "area":
+            print("graphify map: give a learning area slug (wiki.py search \"<name>\")")
+            return 2
+        core, clusters, outside, isolated = graph_area(v, gp, hub)
+        print("Most connected in %s (study these first; they hold the rest together):" % hub.slug)
+        for slug, d in core[:args.n]:
+            print("  %s · %d edge(s) · %s" % (slug, d, v.by_slug[slug].type))
+        print("Topic clusters (%d):" % len(clusters))
+        for name, slugs in clusters[:args.n]:
+            print("  \"%s\": %s" % (name, ", ".join(slugs)))
+        print("Connections leaving the area (other courses, projects) (%d):" % len(outside))
+        for (a, b), n in outside[:args.n]:
+            print("  %s -> %s · %d edge(s)" % (a, b, n))
+        print("Notes with no connections inside the area (%d): %s" % (len(isolated), ", ".join(isolated) or "none"))
+        return 0
+    if args.action == "gaps":
         pairs, clusters = graph_gaps(v, gp)
         print("Unlinked page pairs the graph connects (%d) — verify by reading both before linking:" % len(pairs))
         for (a, b), p in pairs[:args.n]:
@@ -2243,6 +2292,15 @@ def cmd_selftest(args):
               rc == 0 and "attention-mechanism <-> demo-login-crashes" in out and "src-paper <->" not in out
               and "index" not in out, out)
         check("graphify gaps flags clusters without a concept page", '"C0"' in out and '"C1"' not in out, out)
+        (tmp / "graphify-out/area.json").write_text(json.dumps({"nodes": [
+            nd("alg", "wiki/learning/algorithms/algorithms.md", 2), nd("hw", "wiki/learning/algorithms/assignments/algorithms-hw1.md", 2),
+            nd("crash", "wiki/projects/demo/issues/demo-login-crashes.md", 0)],
+            "links": [{"source": "alg", "target": "hw"}, {"source": "hw", "target": "crash"}]}), encoding="utf-8")
+        rc, out = run("graphify", "map", "algorithms", "--graph", str(tmp / "graphify-out/area.json"))
+        check("graphify map shows an area's core and its outside links",
+              rc == 0 and "algorithms-hw1 · 1 edge" in out and "algorithms-hw1 -> demo-login-crashes" in out, out)
+        rc, out = run("graphify", "map", "demo")
+        check("graphify map rejects non-area slugs", rc == 2, out)
         run("graphify", "off")
         env.clear(); env.update(env_saved)
         tr = tmp / "transcript.jsonl"
@@ -2391,8 +2449,8 @@ def main(argv=None):
     p = sub.add_parser("commit"); p.add_argument("message"); p.set_defaults(fn=cmd_commit)
     p = sub.add_parser("install-global"); p.add_argument("--uninstall", action="store_true")
     p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_install_global)
-    p = sub.add_parser("graphify"); p.add_argument("action", nargs="?", choices=["on", "off", "gaps"])
-    p.add_argument("--graph"); p.add_argument("-n", type=int, default=25)
+    p = sub.add_parser("graphify"); p.add_argument("action", nargs="?", choices=["on", "off", "gaps", "map"])
+    p.add_argument("area", nargs="?"); p.add_argument("--graph"); p.add_argument("-n", type=int, default=25)
     p.set_defaults(fn=cmd_graphify)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
     args = ap.parse_args(argv)

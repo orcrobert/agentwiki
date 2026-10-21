@@ -26,6 +26,7 @@ Agents write it, you read it in Obsidian. Two halves:
 | Start a course/book/skill | `/wiki-study area <name>` |
 | Turn a lecture or chapter into notes | `/wiki-study note <area>` (drop slides into `raw/` first) |
 | Get quizzed / make flashcards / exam plan | `/wiki-study quiz|cards|plan <area>` |
+| See how a course fits together (optional graphify) | `/wiki-study map <area>` |
 | Track an assignment or exam | `/wiki-study assignment <area> <title>` |
 | Add an article/paper | Web Clipper into `raw/`, or `/wiki-capture <url> --ingest` |
 | Ask anything | Just ask, or `/wiki-query …`; keep good answers with `/wiki-save` |
