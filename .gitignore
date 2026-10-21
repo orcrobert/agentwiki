@@ -28,3 +28,6 @@ _system/ignored-repos.txt
 _system/reports/*
 !_system/reports/.gitkeep
 _system/.state/
+
+# Optional graphify output (scratch; findings go into wiki pages instead)
+graphify-out/

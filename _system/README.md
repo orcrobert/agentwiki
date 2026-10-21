@@ -42,6 +42,7 @@ Agents write it, you read it in Obsidian. Two halves:
 - One repo: `python3 _system/wiki.py project ignore <path>`.
 - Everything user-wide: `python3 _system/wiki.py install-global --uninstall` (restores nothing else; backups `~/.claude/*.wiki-backup-*` exist).
 - Vault autosave: `WIKI_AUTOSAVE=0`.
+- Optional graphify support (off by default): `python3 _system/wiki.py graphify on|off`.
 
 ## Tooling
 `python3 _system/wiki.py --help`. After editing `_system/wiki.py`: `selftest`. After editing `_system/global/*`: `install-global`.

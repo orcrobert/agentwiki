@@ -120,5 +120,6 @@
   "context_log_entries": 3,
   "remind_min_edits": 3,
   "doc_stale_commits": 25,
-  "due_soon_days": 14
+  "due_soon_days": 14,
+  "integrations": {"graphify": false}
 }

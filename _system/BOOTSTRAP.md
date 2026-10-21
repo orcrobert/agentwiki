@@ -56,6 +56,7 @@ Then:
 - [ ] Core plugins: Bases on — open `wiki/dashboard.base` (views: Open issues, Deadlines, Projects, Learning, Needs attention). Graph colour groups: `path:wiki/projects`, `path:wiki/learning`, `path:wiki/concepts`, `path:wiki/sources`.
 - [ ] Community plugins (optional): **Spaced Repetition** (reads `Question :: Answer` flashcards; tag pages `flashcards`), **Mermaid** renders natively.
 - [ ] Web Clipper → note location `raw`, name `{{date|date:"YYYY-MM-DD"}}-{{title}}`.
+- [ ] Optional, only if `command -v graphify` finds it: ask whether the skills may use graphify (code maps for explainers, graph-assisted lint, course concept maps). Yes → `python3 _system/wiki.py graphify on` and add `graphify-out/` to Obsidian's Excluded files. No, or not installed → skip; never install it unasked.
 - [ ] `/plugin marketplace add kepano/obsidian-skills` then `/plugin install obsidian@obsidian-skills`. Optional: `npm install -g defuddle`.
 
 ## Phase 5 — First real use
