@@ -59,7 +59,7 @@ Hub pages have a generated member list (`parent:`/`areas:` → `wiki.py index`).
 - In other repos: global hooks inject project context (SessionStart), ask for a work-log entry after edits (Stop), and auto-log + autosave (SessionEnd).
 
 ## Tooling: `python3 _system/wiki.py <command>` (stdlib only; absolute path from other repos)
-`status` · `search "<q>"` · `project add|which|list|ignore` · `worklog "<title>" [--session S] [--did …] [--files …] [--issue …] [--next …]` · `issue "<title>" --summary … [--severity …]` · `idea "<text>"` · `context [--cwd D]` · `new <type> <slug> --title … [--parent …] [--kind …] [--due …]` · `touch` · `index` · `lint` · `rename` · `log` · `capture` · `pending` · `commit` · `install-global [--uninstall]` · `graphify [on|off]` · `selftest`
+`status` · `search "<q>"` · `project add|which|list|ignore` · `worklog "<title>" [--session S] [--did …] [--files …] [--issue …] [--next …]` · `issue "<title>" --summary … [--severity …]` · `idea "<text>"` · `context [--cwd D]` · `new <type> <slug> --title … [--parent …] [--kind …] [--due …]` · `touch` · `index` · `lint` · `rename` · `log` · `capture` · `pending` · `commit` · `install-global [--uninstall]` · `graphify [on|off|gaps]` · `selftest`
 
 **Optional graphify** (off by default): use it only when `wiki.py graphify` exits 0. Never install, enable it or use `--obsidian`/`--wiki`/`add` into the vault on your own. Graphs are navigation aids; claims still cite code or pages.
 

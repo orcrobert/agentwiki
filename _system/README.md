@@ -31,6 +31,7 @@ Agents write it, you read it in Obsidian. Two halves:
 | Ask anything | Just ask, or `/wiki-query …`; keep good answers with `/wiki-save` |
 | See what's going on | `/wiki-status` · open `wiki/dashboard.base` |
 | Health check | `/wiki-lint` weekly, `/wiki-lint full` monthly |
+| Find missing links/pages with a graph (optional graphify) | `/wiki-lint graph` |
 
 ## Rules of the road
 - `raw/` is append-only. You may edit any wiki page; the agents respect your edits.

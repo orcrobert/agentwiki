@@ -27,6 +27,7 @@ Commands
   install-global [--uninstall] [--dry-run]
                              install user-level hooks, skills and CLAUDE.md block
   graphify [on|off]          optional graphify integration: show status (exit 0 = ready), or toggle it
+  graphify gaps [--graph G]  from a graph built over wiki/: unlinked page pairs + clusters without a concept page
   selftest                   run the built-in test-suite in a temp vault
 """
 
@@ -2001,7 +2002,57 @@ def set_integration(name, on, root=None):
     cfg_path.write_text(new, encoding="utf-8")
 
 
+def graph_gaps(v, graph_path):
+    """From a graphify graph built over wiki/: page pairs the graph connects that don't link each other,
+    and clusters spread over ≥3 pages with no concept/synthesis page among them. Hints for lint, not facts."""
+    g = json.loads(Path(graph_path).read_text(encoding="utf-8"))
+    skip = set(v.cfg.get("special_pages", []))
+    node_page, node_label = {}, {}
+    for nd in g.get("nodes", []):
+        pg = v.by_slug.get(Path(str(nd.get("source_file") or "")).stem.lower())
+        if pg is not None and pg.slug not in skip:
+            node_page[nd["id"]] = pg
+            node_label[nd["id"]] = nd.get("label") or nd["id"]
+    links = {pg.slug.lower(): {t.split("/")[-1].lower() for t, _ in pg.body_links + pg.prop_links} for pg in v.pages}
+    pairs = {}
+    for e in g.get("links", g.get("edges", [])):
+        a, b = node_page.get(e.get("source")), node_page.get(e.get("target"))
+        if a is None or b is None or a is b:
+            continue
+        sa, sb = sorted((a.slug.lower(), b.slug.lower()))
+        if sb in links.get(sa, ()) or sa in links.get(sb, ()):
+            continue
+        p = pairs.setdefault((sa, sb), {"n": 0, "rel": Counter(), "ex": None})
+        p["n"] += 1
+        p["rel"][e.get("relation", "?")] += 1
+        p["ex"] = p["ex"] or (node_label[e["source"]], node_label[e["target"]])
+    clusters = defaultdict(set)
+    names = {}
+    for nd in g.get("nodes", []):
+        if nd.get("id") in node_page and nd.get("community") is not None:
+            clusters[nd["community"]].add(node_page[nd["id"]])
+            names.setdefault(nd["community"], nd.get("community_name") or "community %s" % nd["community"])
+    orphan_clusters = [(names[c], sorted(p.slug for p in pgs)) for c, pgs in clusters.items()
+                       if len(pgs) >= 3 and not any(p.type in ("concept", "synthesis") for p in pgs)]
+    return sorted(pairs.items(), key=lambda kv: -kv[1]["n"]), sorted(orphan_clusters, key=lambda c: -len(c[1]))
+
+
 def cmd_graphify(args):
+    if args.action == "gaps":
+        v = Vault()
+        gp = Path(args.graph) if args.graph else v.root / "graphify-out" / "graph.json"
+        if not gp.is_file():
+            print("graphify gaps: no graph at %s (build one over wiki/ first)" % gp)
+            return 2
+        pairs, clusters = graph_gaps(v, gp)
+        print("Unlinked page pairs the graph connects (%d) — verify by reading both before linking:" % len(pairs))
+        for (a, b), p in pairs[:args.n]:
+            print("  %s <-> %s · %d edge(s): %s · e.g. \"%s\" — \"%s\"" % (
+                a, b, p["n"], ", ".join(r for r, _ in p["rel"].most_common(2)), p["ex"][0], p["ex"][1]))
+        print("Clusters over ≥3 pages without a concept/synthesis page (%d) — candidate concept pages:" % len(clusters))
+        for name, slugs in clusters[:args.n]:
+            print("  \"%s\": %s" % (name, ", ".join(slugs)))
+        return 0
     if args.action in ("on", "off"):
         set_integration("graphify", args.action == "on")
     cfg = load_config()
@@ -2178,6 +2229,20 @@ def cmd_selftest(args):
         run("graphify", "on")
         rc, out = run("context", "--cwd", str(repo))
         check("context points at the repo's code graph when graphify is on", "Code graph" in out and "graph.json" in out, out)
+        nd = lambda i, f, c: {"id": i, "label": i.upper(), "source_file": f, "community": c, "community_name": "C%d" % c}
+        (tmp / "graphify-out").mkdir()
+        (tmp / "graphify-out/graph.json").write_text(json.dumps({"nodes": [
+            nd("crash", "wiki/projects/demo/issues/demo-login-crashes.md", 0), nd("hub", "wiki/projects/demo/demo.md", 0),
+            nd("log", "wiki/projects/demo/demo-log.md", 0), nd("att", "wiki/concepts/attention-mechanism.md", 1),
+            nd("paper", "wiki/sources/src-paper.md", 1), nd("idx", "wiki/index.md", 1)],
+            "links": [{"source": "crash", "target": "att", "relation": "conceptually_related_to"},
+                      {"source": "att", "target": "paper", "relation": "cites"},
+                      {"source": "idx", "target": "crash", "relation": "references"}]}), encoding="utf-8")
+        rc, out = run("graphify", "gaps")
+        check("graphify gaps lists unlinked pairs only",
+              rc == 0 and "attention-mechanism <-> demo-login-crashes" in out and "src-paper <->" not in out
+              and "index" not in out, out)
+        check("graphify gaps flags clusters without a concept page", '"C0"' in out and '"C1"' not in out, out)
         run("graphify", "off")
         env.clear(); env.update(env_saved)
         tr = tmp / "transcript.jsonl"
@@ -2326,7 +2391,8 @@ def main(argv=None):
     p = sub.add_parser("commit"); p.add_argument("message"); p.set_defaults(fn=cmd_commit)
     p = sub.add_parser("install-global"); p.add_argument("--uninstall", action="store_true")
     p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_install_global)
-    p = sub.add_parser("graphify"); p.add_argument("action", nargs="?", choices=["on", "off"])
+    p = sub.add_parser("graphify"); p.add_argument("action", nargs="?", choices=["on", "off", "gaps"])
+    p.add_argument("--graph"); p.add_argument("-n", type=int, default=25)
     p.set_defaults(fn=cmd_graphify)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
     args = ap.parse_args(argv)
