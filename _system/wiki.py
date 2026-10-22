@@ -26,6 +26,7 @@ Commands
   commit MSG                 git add -A + commit inside the vault (no-op when clean)
   install-global [--uninstall] [--dry-run]
                              install user-level hooks, skills and CLAUDE.md block
+  graphify [on|off]          optional graphify integration: show status (exit 0 = ready), or toggle it
   selftest                   run the built-in test-suite in a temp vault
 """
 
@@ -66,6 +67,7 @@ ATTACHMENT_EXTS = {
     "mp3", "wav", "m4a", "ogg", "flac", "mp4", "webm", "mov", "mkv",
     "base", "canvas", "csv", "json", "txt", "html", "epub", "docx", "xlsx", "pptx",
 }
+SKIP_DIRS_ANYWHERE = {"node_modules", "graphify-out"}  # tool output, never wiki pages or sources
 
 
 def today():
@@ -308,7 +310,7 @@ class Vault:
             rel_dir = Path(dirpath).relative_to(self.root)
             dirnames[:] = [d for d in dirnames
                            if not (rel_dir == Path(".") and d in exclude)
-                           and not d.startswith(".") and d != "node_modules"]
+                           and not d.startswith(".") and d not in SKIP_DIRS_ANYWHERE]
             for fn in filenames:
                 p = Path(dirpath) / fn
                 if fn.lower().endswith(".md"):
@@ -357,7 +359,7 @@ class Vault:
             return out
         ignore = self.cfg.get("raw_ignore", [])
         for dirpath, dirnames, filenames in os.walk(self.raw_dir):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS_ANYWHERE]
             for fn in filenames:
                 p = Path(dirpath) / fn
                 rel_in_raw = p.relative_to(self.raw_dir).as_posix()
@@ -1677,6 +1679,15 @@ def project_context(v, hub, session=None):
     docs = v.children(hub, "doc")
     if docs:
         L.append("Explainers: " + ", ".join("%s (%s)" % (d.slug, d.field("kind")) for d in sorted(docs, key=lambda p: p.slug)[:10]))
+    if graphify_ready(cfg):
+        for r in hub.list_field("repo"):
+            g = Path(os.path.expanduser(str(r))) / "graphify-out" / "graph.json"
+            if g.is_file():
+                L.append("Code graph (graphify, built %s): %s. For structure questions (what calls X, how A reaches B) try "
+                         "`graphify query \"…\"` / `graphify path A B` before reading files; cite the code, not the graph. "
+                         "Refresh after big changes: `graphify update .` (code only, no LLM)."
+                         % (_dt.date.fromtimestamp(g.stat().st_mtime).isoformat(), g))
+                break
     for wl in v.children(hub, "worklog"):
         ents = _entries(wl.body, cfg.get("context_log_entries", 3))
         if ents:
@@ -1965,6 +1976,43 @@ def cmd_install_global(args):
 # selftest
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Optional integrations (off unless the human turns them on)
+# ---------------------------------------------------------------------------
+
+def graphify_enabled(cfg):
+    return bool((cfg.get("integrations") or {}).get("graphify"))
+
+
+def graphify_ready(cfg):
+    """Enabled in config AND the graphify CLI is on PATH. Skills gate every graphify step on this."""
+    return graphify_enabled(cfg) and bool(shutil.which("graphify"))
+
+
+def set_integration(name, on, root=None):
+    cfg_path = Path(root or ROOT) / "_system" / "wiki.config.json"
+    text = cfg_path.read_text(encoding="utf-8")
+    val = "true" if on else "false"
+    new, n = re.subn(r'("%s"\s*:\s*)(true|false)' % re.escape(name), r"\g<1>" + val, text, count=1)
+    if not n:  # older config without the key: rewrite it (loses hand formatting, keeps content)
+        data = json.loads(text)
+        data.setdefault("integrations", {})[name] = on
+        new = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    cfg_path.write_text(new, encoding="utf-8")
+
+
+def cmd_graphify(args):
+    if args.action in ("on", "off"):
+        set_integration("graphify", args.action == "on")
+    cfg = load_config()
+    cli = shutil.which("graphify")
+    print("graphify: %s · cli: %s" % ("enabled" if graphify_enabled(cfg) else "disabled",
+                                      cli or "not found (install: uv tool install graphifyy)"))
+    if args.action == "on" and not cli:
+        print("note: enabled, but skills skip graphify until the CLI is installed")
+    return 0 if graphify_ready(cfg) else 1
+
+
 def cmd_selftest(args):
     results = []
 
@@ -2044,6 +2092,34 @@ def cmd_selftest(args):
         check("search finds the concept", "attention-mechanism" in out, out)
         rc, out = run("status", "--hook")
         check("status --hook renders", "<wiki-session-context>" in out and "Pages:" in out, out)
+        # --- optional graphify integration: off by default, output dirs never become pages ---
+        rc, out = run("graphify")
+        check("graphify is disabled by default (exit 1)", rc == 1 and "disabled" in out, out)
+        fakebin = tmp / "_fakebin"
+        fakebin.mkdir()
+        (fakebin / "graphify").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (fakebin / "graphify").chmod(0o755)
+        env_saved = env.copy()
+        env["PATH"] = str(fakebin) + os.pathsep + env.get("PATH", "")
+        rc, out = run("graphify")
+        check("graphify stays off even when installed", rc == 1 and "disabled" in out, out)
+        rc, out = run("graphify", "on")
+        check("graphify on + installed → ready (exit 0)", rc == 0 and "enabled" in out, out)
+        env.clear(); env.update(env_saved)
+        rc, out = run("graphify")
+        check("graphify enabled but CLI missing → not ready", rc == 1 or shutil.which("graphify"), out)
+        rc, out = run("graphify", "off")
+        check("graphify off persists in config",
+              rc == 1 and '"graphify": false' in (tmp / "_system/wiki.config.json").read_text(encoding="utf-8"), out)
+        (tmp / "wiki/concepts/graphify-out").mkdir()
+        (tmp / "wiki/concepts/graphify-out/GRAPH_REPORT.md").write_text("# Graph report\n[[nowhere]]\n", encoding="utf-8")
+        (tmp / "raw/graphify-out").mkdir()
+        (tmp / "raw/graphify-out/converted.md").write_text("x\n", encoding="utf-8")
+        rc, out = run("pending")
+        check("graphify-out in raw/ is not a pending source", "graphify-out" not in out, out)
+        rc, out = run("lint")
+        check("graphify-out in wiki/ is not linted as pages", "GRAPH_REPORT" not in out and "nowhere" not in out, out)
+        shutil.rmtree(tmp / "wiki/concepts/graphify-out"); shutil.rmtree(tmp / "raw/graphify-out")
         # --- projects: hub + companions, worklog, idea, issue, hooks ---
         outside = Path(tempfile.mkdtemp(prefix="wiki-selftest-repo-"))
         repo = outside / "demo"
@@ -2093,6 +2169,17 @@ def cmd_selftest(args):
         rc, out = run("context", "--cwd", str(repo), "--session", "s9")
         check("context shows open issue + recent work",
               rc == 0 and "demo-login-crashes" in out and "Fixed login" in out and "--session s9" in out, out)
+        (repo / "graphify-out").mkdir()
+        (repo / "graphify-out/graph.json").write_text("{}", encoding="utf-8")
+        rc, out = run("context", "--cwd", str(repo))
+        check("context hides the code graph while graphify is off", "Code graph" not in out, out)
+        env_saved = env.copy()
+        env["PATH"] = str(fakebin) + os.pathsep + env.get("PATH", "")
+        run("graphify", "on")
+        rc, out = run("context", "--cwd", str(repo))
+        check("context points at the repo's code graph when graphify is on", "Code graph" in out and "graph.json" in out, out)
+        run("graphify", "off")
+        env.clear(); env.update(env_saved)
         tr = tmp / "transcript.jsonl"
         tu = lambda name, inp: json.dumps({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "name": name, "input": inp}]}})
@@ -2239,6 +2326,8 @@ def main(argv=None):
     p = sub.add_parser("commit"); p.add_argument("message"); p.set_defaults(fn=cmd_commit)
     p = sub.add_parser("install-global"); p.add_argument("--uninstall", action="store_true")
     p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_install_global)
+    p = sub.add_parser("graphify"); p.add_argument("action", nargs="?", choices=["on", "off"])
+    p.set_defaults(fn=cmd_graphify)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
     args = ap.parse_args(argv)
     return args.fn(args)
