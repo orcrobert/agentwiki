@@ -1,7 +1,7 @@
 ---
 name: wiki-study
 description: Learning workflows in the wiki — set up a course/book/skill/research area, turn lectures, chapters and readings into notes and concept pages, explain a topic simply, quiz the user with active recall, make flashcards, plan for an exam, and track assignments and deadlines. Use for anything about uni, courses, books, self-study, exams, assignments or "help me learn/understand/revise X".
-argument-hint: "area <name> | note <area> [file|paste] | explain <topic> | quiz <area|topic> | cards <area|page> | plan <area> | assignment <area> <title> | review"
+argument-hint: "area <name> | note <area> [file|paste] | explain <topic> | quiz <area|topic> | cards <area|page> | plan <area> | map <area> | assignment <area> <title> | review"
 allowed-tools: Bash(python3 _system/wiki.py *) Bash(git add *) Bash(git commit *)
 ---
 
@@ -33,7 +33,15 @@ Answer from the wiki first (wiki-query rules: cite pages, label "Not from the wi
 Add `Question :: Answer` lines (one fact per card, answer ≤1 sentence, no ambiguous cards) under `## Flashcards` (concepts) or `## Review questions` (notes). The format works with Obsidian's Spaced Repetition plugin (tag the page `flashcards` to include it in decks).
 
 ## plan — exam / study plan
-Read the hub, its assignments (dates) and notes; list topics with coverage (notes? concepts? weak spots?). Propose a day-by-day plan up to the exam with spaced reviews and quiz sessions, write it into the exam's assignment page under **Plan** as a checklist, and flag topics without any notes.
+Read the hub, its assignments (dates) and notes (with a `map` already built, order topics by the graph's most-connected concepts); list topics with coverage (notes? concepts? weak spots?). Propose a day-by-day plan up to the exam with spaced reviews and quiz sessions, write it into the exam's assignment page under **Plan** as a checklist, and flag topics without any notes.
+
+## map — concept map of an area (optional graphify)
+Only if `python3 _system/wiki.py graphify` exits 0. Otherwise say graphify is off (`wiki.py graphify on`) and offer `explain` or the hub's **Big picture** instead. Worth it once an area has ~8+ notes; before that the map is noise.
+1. Build or refresh the graph over the wiki from the vault root: the graphify skill on `wiki` (`--update` if `graphify-out/graph.json` exists). Notes need semantic extraction, so this costs tokens; say so first. Never graph `raw/` (graphify writes converted sidecars inside the scanned folder) and never use `--obsidian`/`--wiki`/`add`.
+2. `python3 _system/wiki.py graphify map <area>` lists the most connected pages, topic clusters, connections to other courses or projects, and notes with no connections inside the area.
+3. Read the pages behind the top results, then rewrite the hub's **Big picture**: a ```mermaid diagram of 5–12 core concepts grouped by cluster (edges only where the pages actually support them), plus 3–5 sentences on how the topics fit. Link concept pages; cite notes for non-obvious relations.
+4. Turn the rest into study value: isolated notes → link them to concepts or put them in **Weak spots** if the user can't connect them. Outside connections → a `## Related` line on both pages (e.g. the course concept used in a project). Missing core concepts → `new concept`.
+5. `graphify path "<concept A>" "<concept B>"` makes good "how does A lead to B?" quiz questions and orders an exam `plan` (most connected first).
 
 ## assignment — homework, project, exam, deadline
 `python3 _system/wiki.py new assignment <slug> --parent <area> --kind assignment|exam|quiz|project|presentation|deadline --due YYYY-MM-DD --title "…" --summary "…"`. Fill Requirements (incl. grading and AI-use policy) and a Plan checklist. While working: dated notes under Progress; update `status` (todo → doing → submitted → graded) and `grade`. Help the user understand and plan; respect the course's academic-integrity rules — when the policy forbids or limits AI help, explain concepts and give feedback instead of producing the graded work. If the assignment is a code repo, also register it as a project (wiki-log skill) and link both ways.

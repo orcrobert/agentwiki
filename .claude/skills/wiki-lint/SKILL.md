@@ -1,7 +1,7 @@
 ---
 name: wiki-lint
 description: Health-check and repair the LLM wiki — deterministic checks (broken links, orphans, frontmatter, index drift, duplicates, changed or pending sources) plus a semantic review (contradictions, superseded claims, unsourced statements, confidence miscalibration, missing pages and cross-references, research gaps). Use when the user asks to lint, audit, clean up or check the wiki, after batch ingests, or when status says a lint is due.
-argument-hint: "[quick | full | <folder-or-slug>]"
+argument-hint: "[quick | full | graph | <folder-or-slug>]"
 allowed-tools: Bash(python3 _system/wiki.py *) Bash(git log *) Bash(git add *) Bash(git commit *)
 ---
 
@@ -25,6 +25,13 @@ Scope from `$ARGUMENTS`:
 - `quick` (default): pages changed since the last lint — find the date with `grep "^## \[.*\] lint" wiki/log.md | tail -1`, then `git log --since=<date> --name-only --format= -- wiki/ | sort -u` — plus their direct neighbours.
 - `full`: every page. Above ~60 pages, work cluster by cluster (by folder or by hub page) and delegate cluster reads to Explore subagents that return findings, keeping your own context for fixing.
 - a folder or slug: just that area.
+- `graph`: `full`, plus graph-assisted discovery (below). Only if `python3 _system/wiki.py graphify` exits 0. If it doesn't, say graphify is off (`wiki.py graphify on` enables it) and run `full`.
+
+**Graph-assisted discovery (`graph` only).** Obsidian's graph shows the links you already wrote; a graphify graph also finds pages that are about related things but never link.
+1. From the vault root, build or refresh the graph over `wiki/` with the graphify skill (`/graphify wiki`, or `/graphify wiki --update` when `graphify-out/graph.json` exists). Markdown needs semantic extraction, so this costs tokens; tell the human before a first full build of a large wiki. Never use `--obsidian`, `--wiki` or `add`: the graph's own pages must not land in the vault.
+2. `python3 _system/wiki.py graphify gaps` lists page pairs the graph connects that don't link each other (either way), and clusters over ≥3 pages that have no concept or synthesis page.
+3. Treat each line as a **lead**: read both pages and add a link only when a reader would actually want it, with a reason in the surrounding sentence. Clusters with no concept page are candidates for missing pages (ask or queue as usual). Discard INFERRED-only pairs that don't hold up.
+4. Also skim `graphify-out/GRAPH_REPORT.md` "Surprising connections" for cross-area links (a course concept used in a project). These are the links this wiki exists to make.
 
 Look for:
 - **Contradictions** between pages, and claims **superseded** by newer sources that still read as current.
@@ -42,7 +49,7 @@ Look for:
 - Update `questions.md`: open questions, contested claims, wanted pages, and **sources to find** with suggested search queries.
 
 ## 4. Close
-1. Write `_system/reports/lint-<YYYY-MM-DD>.md`: scope, counts before/after, fixes made, decisions needed, suggested next sources.
+1. Write `_system/reports/lint-<YYYY-MM-DD>.md`: scope, counts before/after, fixes made, decisions needed, suggested next sources (for `graph`: how many gap leads were accepted vs discarded).
 2. `wiki.py touch` changed pages → `wiki.py index` → `wiki.py lint` (0 errors) → `wiki.py log lint "<quick|full|scope>" --updated <slugs> --note "<n fixes; m decisions queued>"`.
 3. Rewrite `hot.md`; `git add -A && git commit -m "wiki: lint | <scope>"`.
 4. Report: what you fixed, what needs the human's decision, and the top 3 sources worth adding next.

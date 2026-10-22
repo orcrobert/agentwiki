@@ -135,6 +135,8 @@ python3 _system/wiki.py graphify on    # or: off · no argument shows the status
 
 What it adds when on:
 - **Projects**: `/wiki-explain` builds a code graph first (`graphify update .`: local parse, no LLM) and uses its core abstractions, clusters and paths to choose modules, draw the architecture and trace flows. `refresh` compares clusters to spot architecture drift. Session context in a repo with a graph points the agent at `graphify query` / `graphify path`.
+- **Upkeep**: `/wiki-lint graph` builds a graph over `wiki/` and `wiki.py graphify gaps` lists page pairs the graph connects that don't link each other, plus clusters with no concept page. The agent reads both pages before adding any link. This costs tokens, since notes need LLM extraction, so run it occasionally, not weekly.
+- **Learning**: `/wiki-study map <area>` (`wiki.py graphify map`) shows a course's most connected concepts, topic clusters, links to other courses or projects, and notes connected to nothing. It rewrites the hub's Big picture as a diagram and feeds exam plans and "how does A lead to B?" quiz questions.
 
 Every graphify step in the skills checks this first and is skipped when it's off or the CLI is missing. Graph output (`graphify-out/`) is scratch: gitignored, never indexed or linted as wiki pages, and never cited as evidence. Claims still cite the code or the pages.
 

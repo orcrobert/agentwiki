@@ -26,11 +26,13 @@ Agents write it, you read it in Obsidian. Two halves:
 | Start a course/book/skill | `/wiki-study area <name>` |
 | Turn a lecture or chapter into notes | `/wiki-study note <area>` (drop slides into `raw/` first) |
 | Get quizzed / make flashcards / exam plan | `/wiki-study quiz|cards|plan <area>` |
+| See how a course fits together (optional graphify) | `/wiki-study map <area>` |
 | Track an assignment or exam | `/wiki-study assignment <area> <title>` |
 | Add an article/paper | Web Clipper into `raw/`, or `/wiki-capture <url> --ingest` |
 | Ask anything | Just ask, or `/wiki-query …`; keep good answers with `/wiki-save` |
 | See what's going on | `/wiki-status` · open `wiki/dashboard.base` |
 | Health check | `/wiki-lint` weekly, `/wiki-lint full` monthly |
+| Find missing links/pages with a graph (optional graphify) | `/wiki-lint graph` |
 
 ## Rules of the road
 - `raw/` is append-only. You may edit any wiki page; the agents respect your edits.
